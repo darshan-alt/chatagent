@@ -77,12 +77,13 @@ export async function updateSession(request: NextRequest) {
 
     const pathname = request.nextUrl.pathname;
 
-    // List of public/exempt routes accessible by everyone (landing page, auth, login, paywall, webhooks)
+    // List of public/exempt routes accessible without paywall redirect (landing page, auth, login, paywall, redeem API, webhooks)
     const isPublicRoute = 
       pathname === "/" ||
       pathname.startsWith("/login") ||
       pathname.startsWith("/auth") ||
       pathname.startsWith("/paywall") ||
+      pathname.startsWith("/api/redeem") ||
       pathname.startsWith("/api/stripe/webhook");
 
     if (!isPublicRoute) {
