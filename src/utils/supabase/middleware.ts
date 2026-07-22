@@ -1,6 +1,15 @@
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
+function getSupabaseUrl() {
+  let url = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
+  return url.replace(/\/rest\/v1\/?$/, "").replace(/\/+$/, "");
+}
+
+function getSupabaseAnonKey() {
+  return process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
+}
+
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({
     request: {
@@ -8,9 +17,16 @@ export async function updateSession(request: NextRequest) {
     },
   });
 
+  const url = getSupabaseUrl();
+  const anonKey = getSupabaseAnonKey();
+
+  if (!url || !anonKey) {
+    return supabaseResponse;
+  }
+
   const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    url,
+    anonKey,
     {
       cookies: {
         get(name: string) {
@@ -54,40 +70,42 @@ export async function updateSession(request: NextRequest) {
     }
   );
 
-  // refreshing the auth token
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  try {
+    // refreshing the auth token
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
 
-  // Paywall Logic
-  // Exclude auth routes, paywall route, public assets, and root landing page
-  const isPublicRoute = 
-    request.nextUrl.pathname.startsWith("/auth") || 
-    request.nextUrl.pathname.startsWith("/login") ||
-    request.nextUrl.pathname === "/" ||
-    request.nextUrl.pathname.startsWith("/paywall") ||
-    request.nextUrl.pathname.startsWith("/api/stripe/webhook");
+    // Paywall Logic
+    const isPublicRoute = 
+      request.nextUrl.pathname.startsWith("/auth") || 
+      request.nextUrl.pathname.startsWith("/login") ||
+      request.nextUrl.pathname === "/" ||
+      request.nextUrl.pathname.startsWith("/paywall") ||
+      request.nextUrl.pathname.startsWith("/api/stripe/webhook");
 
-  if (!isPublicRoute) {
-    if (!user) {
-      // not logged in -> redirect to login
-      const url = request.nextUrl.clone();
-      url.pathname = "/login";
-      return NextResponse.redirect(url);
-    } else {
-      // logged in, check profile credits and has_paid
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("credits, has_paid")
-        .eq("id", user.id)
-        .single();
-      
-      if (profile && profile.credits <= 0 && !profile.has_paid) {
-        const url = request.nextUrl.clone();
-        url.pathname = "/paywall";
-        return NextResponse.redirect(url);
+    if (!isPublicRoute) {
+      if (!user) {
+        const redirectUrl = request.nextUrl.clone();
+        redirectUrl.pathname = "/login";
+        return NextResponse.redirect(redirectUrl);
+      } else {
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("credits, has_paid")
+          .eq("id", user.id)
+          .single();
+        
+        if (profile && profile.credits <= 0 && !profile.has_paid) {
+          const redirectUrl = request.nextUrl.clone();
+          redirectUrl.pathname = "/paywall";
+          return NextResponse.redirect(redirectUrl);
+        }
       }
     }
+  } catch (err) {
+    // Log error gracefully and proceed
+    console.error("Middleware Supabase session error:", err);
   }
 
   return supabaseResponse;

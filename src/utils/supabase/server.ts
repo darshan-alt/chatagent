@@ -1,12 +1,23 @@
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { cookies } from "next/headers";
 
+function getSupabaseUrl() {
+  let url = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
+  return url.replace(/\/rest\/v1\/?$/, "").replace(/\/+$/, "");
+}
+
+function getSupabaseAnonKey() {
+  return process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
+}
+
 export async function createClient() {
   const cookieStore = await cookies();
+  const url = getSupabaseUrl();
+  const anonKey = getSupabaseAnonKey();
 
   return createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    url,
+    anonKey,
     {
       cookies: {
         get(name: string) {
@@ -16,18 +27,14 @@ export async function createClient() {
           try {
             cookieStore.set({ name, value, ...options });
           } catch (error) {
-            // The `set` method was called from a Server Component.
-            // This can be ignored if you have middleware refreshing
-            // user sessions.
+            // Server Component ignore
           }
         },
         remove(name: string, options: CookieOptions) {
           try {
             cookieStore.set({ name, value: "", ...options });
           } catch (error) {
-            // The `delete` method was called from a Server Component.
-            // This can be ignored if you have middleware refreshing
-            // user sessions.
+            // Server Component ignore
           }
         },
       },
