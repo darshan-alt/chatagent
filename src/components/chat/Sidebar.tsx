@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Plus, MessageSquare, Settings, LogOut, Coins } from "lucide-react";
+import { Plus, MessageSquare, Settings, LogOut, Coins, BarChart3 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 export interface ChatItem {
@@ -56,7 +56,7 @@ export function Sidebar({
         )}
       </div>
 
-      {/* Footer / Credits & Settings */}
+      {/* Footer / Credits & Stats & Settings */}
       <div className="p-4 border-t border-zinc-800 space-y-3 bg-zinc-950">
         <div className="flex items-center justify-between px-2 py-1.5 rounded-md bg-zinc-900 border border-zinc-800 text-xs">
           <div className="flex items-center gap-1.5 text-zinc-300">
@@ -67,6 +67,10 @@ export function Sidebar({
         </div>
 
         <div className="flex items-center justify-between text-xs text-zinc-400 pt-1">
+          <Link href="/stats" className="hover:text-zinc-100 flex items-center gap-1">
+            <BarChart3 className="w-3.5 h-3.5 text-blue-400" />
+            Stats
+          </Link>
           <Link href="/settings" className="hover:text-zinc-100 flex items-center gap-1">
             <Settings className="w-3.5 h-3.5" />
             Settings
@@ -74,7 +78,6 @@ export function Sidebar({
           <form action="/auth/signout" method="POST">
             <button type="submit" className="hover:text-zinc-100 flex items-center gap-1 text-red-400 hover:text-red-300">
               <LogOut className="w-3.5 h-3.5" />
-              Sign out
             </button>
           </form>
         </div>

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
+import { SUPPORTED_MODELS } from "@/lib/agent/pricing";
 
 export default function SettingsForm({
   initialBaseUrl,
@@ -12,6 +13,7 @@ export default function SettingsForm({
 }) {
   const [baseUrl, setBaseUrl] = useState(initialBaseUrl || "https://api.openai.com/v1");
   const [apiKey, setApiKey] = useState(initialApiKey);
+  const [selectedModel, setSelectedModel] = useState(SUPPORTED_MODELS[0].modelId);
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
@@ -53,6 +55,22 @@ export default function SettingsForm({
           {msg.text}
         </div>
       )}
+
+      <div className="space-y-2">
+        <label className="text-sm font-medium text-zinc-300">Select Default LLM Model</label>
+        <select
+          value={selectedModel}
+          onChange={(e) => setSelectedModel(e.target.value)}
+          className="flex h-10 w-full rounded-md border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:ring-2 focus:ring-zinc-700"
+        >
+          {SUPPORTED_MODELS.map((model) => (
+            <option key={model.modelId} value={model.modelId}>
+              {model.name} ({model.provider}) — ${model.inputPerMillion}/1M in, ${model.outputPerMillion}/1M out
+            </option>
+          ))}
+        </select>
+        <p className="text-xs text-zinc-500">Pick from OpenAI, Claude, or Kimi models with live pricing calculations.</p>
+      </div>
 
       <div className="space-y-2">
         <label className="text-sm font-medium text-zinc-300">Base URL</label>

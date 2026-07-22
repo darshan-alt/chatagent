@@ -3,12 +3,13 @@ import { NextResponse } from "next/server";
 import { OpenAI } from "openai";
 import { performWebSearch } from "@/lib/agent/search";
 import { generatePdfReport } from "@/lib/agent/pdf";
+import { calculateCost } from "@/lib/agent/pricing";
 
 const MAX_ITERATIONS = 6;
 
 export async function POST(request: Request) {
   try {
-    const { chatId: inputChatId, prompt } = await request.json();
+    const { chatId: inputChatId, prompt, model: requestedModel } = await request.json();
 
     if (!prompt || !prompt.trim()) {
       return NextResponse.json({ error: "Prompt is required" }, { status: 400 });
@@ -72,6 +73,7 @@ export async function POST(request: Request) {
     const runId = `run_${Date.now()}`;
     let seq = 1;
     let pdfUrl: string | undefined = undefined;
+    const selectedModel = requestedModel || "gpt-4o-mini";
 
     // 5. Save initial User Message
     await supabase.from("messages").insert([{
@@ -134,15 +136,25 @@ export async function POST(request: Request) {
 
     const allSteps: any[] = [];
     let finalAnswer = "";
+    let totalInputTokens = 0;
+    let totalOutputTokens = 0;
+    let totalCacheTokens = 0;
 
     // 7. Agent Execution Loop (Max 6 Iterations)
     for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
       const response = await openai.chat.completions.create({
-        model: "gpt-4o-mini", // Fallback default model
+        model: selectedModel,
         messages: messageHistory,
         tools,
         tool_choice: "auto",
       });
+
+      // Track usage metrics
+      if (response.usage) {
+        totalInputTokens += response.usage.prompt_tokens || 0;
+        totalOutputTokens += response.usage.completion_tokens || 0;
+        totalCacheTokens += (response.usage as any).prompt_tokens_details?.cached_tokens || 0;
+      }
 
       const choice = response.choices[0];
       const message = choice.message;
@@ -227,12 +239,31 @@ export async function POST(request: Request) {
       }
     }
 
+    // 8. Calculate Cost & Store in token_usage table
+    const costUsd = calculateCost(selectedModel, totalInputTokens, totalOutputTokens, totalCacheTokens);
+
+    await supabase.from("token_usage").insert([{
+      user_id: user.id,
+      run_id: runId,
+      model_id: selectedModel,
+      input_tokens: totalInputTokens,
+      output_tokens: totalOutputTokens,
+      cache_tokens: totalCacheTokens,
+      cost_usd: costUsd,
+    }]);
+
     return NextResponse.json({
       run_id: runId,
       chatId,
       steps: allSteps,
       finalAnswer,
       pdfUrl,
+      usage: {
+        inputTokens: totalInputTokens,
+        outputTokens: totalOutputTokens,
+        cacheTokens: totalCacheTokens,
+        costUsd,
+      },
     });
   } catch (error: any) {
     console.error("Agent Run Error:", error);
