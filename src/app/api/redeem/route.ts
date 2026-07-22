@@ -1,6 +1,8 @@
 import { createClient } from "@/utils/supabase/server";
 import { NextResponse } from "next/server";
 
+const MAX_PROMO_USES = 5;
+
 export async function POST(request: Request) {
   try {
     const { code } = await request.json();
@@ -35,10 +37,24 @@ export async function POST(request: Request) {
       couponValue = 5;
       couponCode = "SID_DRDROID";
     } else {
-      return NextResponse.json({ error: "Invalid coupon code" }, { status: 400 });
+      return NextResponse.json({ error: "Invalid promo code" }, { status: 400 });
     }
 
-    // Check if user already redeemed
+    // 1. Check total redemptions for this promo code
+    const { data: allRedemptions, count: totalRedemptionsCount } = await supabase
+      .from("redemptions")
+      .select("id", { count: "exact" })
+      .ilike("coupon_code", couponCode);
+
+    const currentUsageCount = totalRedemptionsCount || allRedemptions?.length || 0;
+
+    if (currentUsageCount >= MAX_PROMO_USES) {
+      return NextResponse.json({ 
+        error: `This promo code has reached its maximum usage limit (${currentUsageCount}/${MAX_PROMO_USES} uses).` 
+      }, { status: 400 });
+    }
+
+    // 2. Check if user already redeemed
     const { data: existingRedemption } = await supabase
       .from("redemptions")
       .select("*")
@@ -47,10 +63,12 @@ export async function POST(request: Request) {
       .single();
 
     if (existingRedemption) {
-      return NextResponse.json({ error: "You have already redeemed this coupon" }, { status: 400 });
+      return NextResponse.json({ 
+        error: `You have already redeemed this promo code. (Total code uses: ${currentUsageCount}/${MAX_PROMO_USES})` 
+      }, { status: 400 });
     }
 
-    // Insert redemption record (ignore if RLS or table missing in fallback mode)
+    // 3. Insert redemption record
     try {
       await supabase
         .from("redemptions")
@@ -59,7 +77,7 @@ export async function POST(request: Request) {
       console.warn("Redemption record insert warning:", e);
     }
 
-    // Fetch current profile to grant credits
+    // 4. Fetch current profile & update credits
     const { data: profile } = await supabase
       .from("profiles")
       .select("credits, has_paid")
@@ -73,14 +91,12 @@ export async function POST(request: Request) {
     let updateError = null;
 
     if (profile) {
-      // Profile exists: UPDATE
       const res = await supabase
         .from("profiles")
         .update({ credits: newCredits })
         .eq("id", user.id);
       updateError = res.error;
     } else {
-      // Profile missing: INSERT or UPSERT
       const res = await supabase
         .from("profiles")
         .upsert({
@@ -94,11 +110,19 @@ export async function POST(request: Request) {
     if (updateError) {
       console.error("Profile credits update error:", updateError);
       return NextResponse.json({ 
-        error: `Failed to update credits: ${updateError.message || "RLS policy error"}. Please run the updated SQL migration.` 
+        error: `Failed to update credits: ${updateError.message || "RLS policy error"}.` 
       }, { status: 500 });
     }
 
-    return NextResponse.json({ success: true, creditsAdded: couponValue });
+    const newUsageCount = currentUsageCount + 1;
+
+    return NextResponse.json({ 
+      success: true, 
+      creditsAdded: couponValue,
+      usesCount: newUsageCount,
+      maxUses: MAX_PROMO_USES,
+      message: `Coupon redeemed! Added ${couponValue} credits. Code has been used ${newUsageCount} of ${MAX_PROMO_USES} times.`
+    });
   } catch (error: any) {
     console.error("Redeem API error:", error);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });

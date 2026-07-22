@@ -8,6 +8,7 @@ export default function PaywallPage() {
   const [coupon, setCoupon] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [successMsg, setSuccessMsg] = useState("");
   const router = useRouter();
 
   const handleRedeem = async (e: React.FormEvent) => {
@@ -16,6 +17,7 @@ export default function PaywallPage() {
 
     setLoading(true);
     setError("");
+    setSuccessMsg("");
 
     try {
       const res = await fetch("/api/redeem", {
@@ -30,16 +32,21 @@ export default function PaywallPage() {
       if (contentType && contentType.includes("application/json")) {
         data = await res.json();
       } else {
-        throw new Error("Server returned an invalid response. Please ensure your Supabase keys in .env.local are valid.");
+        throw new Error("Server returned an invalid response. Please check your configuration.");
       }
 
       if (!res.ok) {
-        throw new Error(data.error || "Failed to redeem coupon.");
+        throw new Error(data.error || "Failed to redeem promo code.");
       }
 
-      // Success, redirect to main app
-      router.push("/");
-      router.refresh();
+      // Success: Display usage stats message and redirect
+      const message = data.message || `Promo code redeemed! (Used ${data.usesCount || 1} of ${data.maxUses || 5} times)`;
+      setSuccessMsg(message);
+
+      setTimeout(() => {
+        router.push("/");
+        router.refresh();
+      }, 1500);
     } catch (err: any) {
       setError(err.message || "An unexpected error occurred.");
     } finally {
@@ -53,7 +60,7 @@ export default function PaywallPage() {
         <div className="space-y-2 text-center">
           <h1 className="text-3xl font-bold tracking-tighter">Out of Credits</h1>
           <p className="text-zinc-400 text-sm">
-            You've run out of credits. Redeem a promo code or purchase credits to continue using ChatAgent.
+            You've run out of credits. Redeem a promo code (max 5 uses) or purchase credits to continue using ChatAgent.
           </p>
         </div>
         
@@ -75,7 +82,7 @@ export default function PaywallPage() {
             <div className="space-y-2">
               <input
                 type="text"
-                placeholder="Enter coupon code (e.g. SID_DRDROID)"
+                placeholder="Enter promo code (e.g. SID_DRDROID)"
                 value={coupon}
                 onChange={(e) => setCoupon(e.target.value)}
                 className="flex h-10 w-full rounded-md border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-zinc-700"
@@ -89,13 +96,19 @@ export default function PaywallPage() {
               </div>
             )}
 
+            {successMsg && (
+              <div className="p-3 text-xs rounded border border-green-500/50 bg-green-500/10 text-green-400">
+                {successMsg}
+              </div>
+            )}
+
             <Button 
               type="submit" 
               className="w-full bg-zinc-100 text-zinc-950 hover:bg-zinc-200 font-semibold" 
               size="lg" 
               disabled={loading}
             >
-              {loading ? "Redeeming..." : "Redeem Coupon"}
+              {loading ? "Redeeming..." : "Redeem Promo Code"}
             </Button>
           </form>
         </div>
