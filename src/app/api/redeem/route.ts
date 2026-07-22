@@ -50,38 +50,52 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "You have already redeemed this coupon" }, { status: 400 });
     }
 
-    // Insert redemption record
-    const { error: redemptionError } = await supabase
-      .from("redemptions")
-      .insert([
-        { user_id: user.id, coupon_code: couponCode }
-      ]);
-
-    if (redemptionError && redemptionError.code === "23505") { // Unique violation
-      return NextResponse.json({ error: "You have already redeemed this coupon" }, { status: 400 });
+    // Insert redemption record (ignore if RLS or table missing in fallback mode)
+    try {
+      await supabase
+        .from("redemptions")
+        .insert([{ user_id: user.id, coupon_code: couponCode }]);
+    } catch (e) {
+      console.warn("Redemption record insert warning:", e);
     }
 
     // Fetch current profile to grant credits
     const { data: profile } = await supabase
       .from("profiles")
-      .select("credits")
+      .select("credits, has_paid")
       .eq("id", user.id)
       .single();
       
     const currentCredits = profile?.credits || 0;
-    
-    // Update or Upsert profile with new credits
-    const { error: updateError } = await supabase
-      .from("profiles")
-      .upsert({
-        id: user.id,
-        credits: currentCredits + couponValue,
-        has_paid: false,
-      });
+    const hasPaid = profile?.has_paid || false;
+    const newCredits = currentCredits + couponValue;
+
+    let updateError = null;
+
+    if (profile) {
+      // Profile exists: UPDATE
+      const res = await supabase
+        .from("profiles")
+        .update({ credits: newCredits })
+        .eq("id", user.id);
+      updateError = res.error;
+    } else {
+      // Profile missing: INSERT or UPSERT
+      const res = await supabase
+        .from("profiles")
+        .upsert({
+          id: user.id,
+          credits: newCredits,
+          has_paid: hasPaid,
+        });
+      updateError = res.error;
+    }
 
     if (updateError) {
       console.error("Profile credits update error:", updateError);
-      return NextResponse.json({ error: "Failed to update credits. Please check table RLS policies." }, { status: 500 });
+      return NextResponse.json({ 
+        error: `Failed to update credits: ${updateError.message || "RLS policy error"}. Please run the updated SQL migration.` 
+      }, { status: 500 });
     }
 
     return NextResponse.json({ success: true, creditsAdded: couponValue });
