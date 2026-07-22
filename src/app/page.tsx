@@ -1,4 +1,5 @@
-import { Button } from "@/components/ui/button";
+import { buttonVariants } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import Link from "next/link";
 
 export default function Home() {
@@ -31,12 +32,18 @@ export default function Home() {
                 MicroManus provides instant, in-depth research and analysis powered by advanced AI. Fast, accurate, and perfectly organized.
               </p>
               <div className="flex justify-center gap-4 mt-8">
-                <Button size="lg" className="bg-zinc-50 text-zinc-950 hover:bg-zinc-200" asChild>
-                  <Link href="/login">Get Started</Link>
-                </Button>
-                <Button size="lg" variant="outline" className="border-zinc-700 hover:bg-zinc-800 hover:text-zinc-50" asChild>
-                  <Link href="#features">Learn More</Link>
-                </Button>
+                <Link 
+                  href="/login" 
+                  className={cn(buttonVariants({ size: "lg" }), "bg-zinc-50 text-zinc-950 hover:bg-zinc-200")}
+                >
+                  Get Started
+                </Link>
+                <Link 
+                  href="#features" 
+                  className={cn(buttonVariants({ variant: "outline", size: "lg" }), "border-zinc-700 hover:bg-zinc-800 hover:text-zinc-50")}
+                >
+                  Learn More
+                </Link>
               </div>
             </div>
           </div>

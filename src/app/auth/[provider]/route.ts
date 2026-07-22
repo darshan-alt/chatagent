@@ -4,15 +4,16 @@ import { type Provider } from "@supabase/supabase-js";
 
 export async function POST(
   request: Request,
-  { params }: { params: { provider: string } }
+  { params }: { params: Promise<{ provider: string }> }
 ) {
-  const provider = params.provider as Provider;
+  const resolvedParams = await params;
+  const provider = resolvedParams.provider as Provider;
   
   if (provider !== "github" && provider !== "google") {
     return new Response("Invalid provider", { status: 400 });
   }
 
-  const supabase = createClient();
+  const supabase = await createClient();
   const requestUrl = new URL(request.url);
   const redirectUrl = `${requestUrl.origin}/auth/callback`;
 

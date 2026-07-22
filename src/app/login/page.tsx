@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { Button } from "@/components/ui/button";
 
 export default async function LoginPage() {
-  const supabase = createClient();
+  const supabase = await createClient();
   
   const { data } = await supabase.auth.getUser();
   if (data?.user) {
