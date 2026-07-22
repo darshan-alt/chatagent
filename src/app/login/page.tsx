@@ -38,12 +38,6 @@ export default async function LoginPage({
               Continue with GitHub
             </Button>
           </form>
-          <form action="/auth/google" method="POST">
-            <Button type="submit" variant="outline" className="w-full bg-zinc-900 text-zinc-100 border-zinc-700 hover:bg-zinc-800 hover:text-white font-semibold" size="lg">
-              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mr-2 h-5 w-5"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg>
-              Continue with Google
-            </Button>
-          </form>
         </div>
       </div>
     </div>

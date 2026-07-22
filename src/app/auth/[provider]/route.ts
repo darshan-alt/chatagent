@@ -25,7 +25,7 @@ export async function POST(
   });
 
   if (error) {
-    return redirect("/login?error=Could not authenticate");
+    return redirect(`/login?error=${encodeURIComponent(error.message)}`);
   }
 
   return redirect(data.url);
