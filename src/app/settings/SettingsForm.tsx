@@ -1,8 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { SUPPORTED_MODELS } from "@/lib/agent/pricing";
+
+export const SELECTED_MODEL_STORAGE_KEY = "chatagent:selectedModel";
 
 export default function SettingsForm({
   initialBaseUrl,
@@ -16,6 +18,20 @@ export default function SettingsForm({
   const [selectedModel, setSelectedModel] = useState(SUPPORTED_MODELS[0].modelId);
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
+
+  // Restore the previously chosen model on mount.
+  useEffect(() => {
+    const saved = localStorage.getItem(SELECTED_MODEL_STORAGE_KEY);
+    if (saved && SUPPORTED_MODELS.some((m) => m.modelId === saved)) {
+      setSelectedModel(saved);
+    }
+  }, []);
+
+  const handleModelChange = (modelId: string) => {
+    setSelectedModel(modelId);
+    // Persist so agent runs use the chosen model (see ChatView).
+    localStorage.setItem(SELECTED_MODEL_STORAGE_KEY, modelId);
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -60,7 +76,7 @@ export default function SettingsForm({
         <label className="text-sm font-medium text-zinc-300">Select Default LLM Model</label>
         <select
           value={selectedModel}
-          onChange={(e) => setSelectedModel(e.target.value)}
+          onChange={(e) => handleModelChange(e.target.value)}
           className="flex h-10 w-full rounded-md border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:ring-2 focus:ring-zinc-700"
         >
           {SUPPORTED_MODELS.map((model) => (

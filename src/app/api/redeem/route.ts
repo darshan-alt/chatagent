@@ -40,41 +40,53 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Invalid promo code" }, { status: 400 });
     }
 
-    // 1. Check total redemptions for this promo code
-    const { data: allRedemptions, count: totalRedemptionsCount } = await supabase
-      .from("redemptions")
-      .select("id", { count: "exact" })
-      .ilike("coupon_code", couponCode);
-
-    const currentUsageCount = totalRedemptionsCount || allRedemptions?.length || 0;
-
-    if (currentUsageCount >= MAX_PROMO_USES) {
-      return NextResponse.json({ 
-        error: `This promo code has reached its maximum usage limit (${currentUsageCount}/${MAX_PROMO_USES} uses).` 
-      }, { status: 400 });
-    }
-
-    // 2. Check if user already redeemed
+    // 1. Reject if this user already redeemed the code.
     const { data: existingRedemption } = await supabase
       .from("redemptions")
-      .select("*")
+      .select("id")
       .eq("user_id", user.id)
       .ilike("coupon_code", couponCode)
       .single();
 
     if (existingRedemption) {
-      return NextResponse.json({ 
-        error: `You have already redeemed this promo code. (Total code uses: ${currentUsageCount}/${MAX_PROMO_USES})` 
+      const { count: usedCount } = await supabase
+        .from("redemptions")
+        .select("id", { count: "exact", head: true })
+        .ilike("coupon_code", couponCode);
+      return NextResponse.json({
+        error: `You have already redeemed this promo code. (Total code uses: ${usedCount ?? 0}/${MAX_PROMO_USES})`
       }, { status: 400 });
     }
 
-    // 3. Insert redemption record
-    try {
-      await supabase
-        .from("redemptions")
-        .insert([{ user_id: user.id, coupon_code: couponCode }]);
-    } catch (e) {
-      console.warn("Redemption record insert warning:", e);
+    // 2. Claim a redemption slot BEFORE checking the cap. Counting first and
+    // inserting after leaves a race window where many parallel requests all
+    // pass the check and blow past MAX_PROMO_USES. By inserting first and then
+    // counting, an over-limit claim can be detected and rolled back.
+    const { data: claimed, error: claimError } = await supabase
+      .from("redemptions")
+      .insert([{ user_id: user.id, coupon_code: couponCode }])
+      .select("id")
+      .single();
+
+    if (claimError || !claimed) {
+      return NextResponse.json({
+        error: "Could not redeem this promo code right now. Please try again."
+      }, { status: 500 });
+    }
+
+    // 3. Enforce the cap. If this claim pushed usage over the limit, roll it back.
+    const { count: totalRedemptionsCount } = await supabase
+      .from("redemptions")
+      .select("id", { count: "exact", head: true })
+      .ilike("coupon_code", couponCode);
+
+    const currentUsageCount = totalRedemptionsCount || 0;
+
+    if (currentUsageCount > MAX_PROMO_USES) {
+      await supabase.from("redemptions").delete().eq("id", claimed.id);
+      return NextResponse.json({
+        error: `This promo code has reached its maximum usage limit (${MAX_PROMO_USES}/${MAX_PROMO_USES} uses).`
+      }, { status: 400 });
     }
 
     // 4. Fetch current profile & update credits
@@ -109,12 +121,15 @@ export async function POST(request: Request) {
 
     if (updateError) {
       console.error("Profile credits update error:", updateError);
-      return NextResponse.json({ 
-        error: `Failed to update credits: ${updateError.message || "RLS policy error"}.` 
+      // Roll back the claimed redemption so the user can retry.
+      await supabase.from("redemptions").delete().eq("id", claimed.id);
+      return NextResponse.json({
+        error: `Failed to update credits: ${updateError.message || "RLS policy error"}.`
       }, { status: 500 });
     }
 
-    const newUsageCount = currentUsageCount + 1;
+    // currentUsageCount already includes this redemption (claimed in step 2).
+    const newUsageCount = currentUsageCount;
 
     return NextResponse.json({ 
       success: true, 

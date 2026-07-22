@@ -46,18 +46,14 @@ export async function POST(request: Request) {
       .single();
 
     if (!userKey?.api_key) {
-      return NextResponse.json({ 
-        error: "No LLM API Key found. Please add your API key in Settings first." 
+      return NextResponse.json({
+        error: "No LLM API Key found. Please add your API key in Settings first."
       }, { status: 400 });
     }
 
-    // 3. Deduct 1 credit
-    if (credits > 0) {
-      await supabase
-        .from("profiles")
-        .update({ credits: credits - 1 })
-        .eq("id", user.id);
-    }
+    // Note: the credit is deducted only AFTER the agent loop completes
+    // successfully (see step 8). Deducting up front charged users for runs
+    // that later failed (bad key, upstream error, PDF failure) with no refund.
 
     // 4. Ensure Chat ID exists
     let chatId = inputChatId;
@@ -185,8 +181,31 @@ export async function POST(request: Request) {
         for (const toolCall of message.tool_calls) {
           if (toolCall.type === "function") {
             const fnName = toolCall.function.name;
-            const args = JSON.parse(toolCall.function.arguments || "{}");
+            let args: any = {};
             let resultStr = "";
+
+            try {
+              args = JSON.parse(toolCall.function.arguments || "{}");
+            } catch {
+              // Malformed tool arguments must not crash the whole run. Feed the
+              // error back to the model so it can retry with valid arguments.
+              const errorResult = `Error: could not parse arguments for "${fnName}". Provide valid JSON.`;
+              messageHistory.push({
+                role: "tool",
+                tool_call_id: toolCall.id,
+                content: errorResult,
+              });
+              await supabase.from("messages").insert([{
+                chat_id: chatId,
+                user_id: user.id,
+                run_id: runId,
+                seq: seq++,
+                role: "tool",
+                content: errorResult,
+                tool_call_id: toolCall.id,
+              }]);
+              continue;
+            }
 
             if (fnName === "web_search") {
               resultStr = await performWebSearch(args.query);
@@ -239,7 +258,16 @@ export async function POST(request: Request) {
       }
     }
 
-    // 8. Calculate Cost & Store in token_usage table
+    // 8. Deduct 1 credit now that the run has completed successfully.
+    // Paid users with 0 credits are not charged (has_paid grants access).
+    if (credits > 0) {
+      await supabase
+        .from("profiles")
+        .update({ credits: credits - 1 })
+        .eq("id", user.id);
+    }
+
+    // 9. Calculate Cost & Store in token_usage table
     const costUsd = calculateCost(selectedModel, totalInputTokens, totalOutputTokens, totalCacheTokens);
 
     await supabase.from("token_usage").insert([{

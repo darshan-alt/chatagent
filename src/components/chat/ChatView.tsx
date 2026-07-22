@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Send, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { RunCard, RunCardData } from "./RunCard";
+import { SELECTED_MODEL_STORAGE_KEY } from "@/app/settings/SettingsForm";
 
 export function ChatView({
   chatId,
@@ -35,10 +36,15 @@ export function ChatView({
     setRuns((prev) => [...prev, newRun]);
 
     try {
+      const selectedModel =
+        typeof window !== "undefined"
+          ? localStorage.getItem(SELECTED_MODEL_STORAGE_KEY) || undefined
+          : undefined;
+
       const res = await fetch("/api/agent/run", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ chatId, prompt: userQuery }),
+        body: JSON.stringify({ chatId, prompt: userQuery, model: selectedModel }),
       });
 
       const data = await res.json();
