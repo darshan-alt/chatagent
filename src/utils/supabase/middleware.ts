@@ -10,6 +10,19 @@ function getSupabaseAnonKey() {
   return process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
 }
 
+// Public/exempt routes accessible without a session (landing, auth, login,
+// paywall, redeem API, Stripe webhook).
+function isPublicRoute(pathname: string) {
+  return (
+    pathname === "/" ||
+    pathname.startsWith("/login") ||
+    pathname.startsWith("/auth") ||
+    pathname.startsWith("/paywall") ||
+    pathname.startsWith("/api/redeem") ||
+    pathname.startsWith("/api/stripe/webhook")
+  );
+}
+
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({
     request: {
@@ -21,6 +34,13 @@ export async function updateSession(request: NextRequest) {
   const anonKey = getSupabaseAnonKey();
 
   if (!url || !anonKey) {
+    // Supabase not configured: fail closed. Allow only public routes; send
+    // everything else to /login instead of leaving the app ungated.
+    if (!isPublicRoute(request.nextUrl.pathname)) {
+      const redirectUrl = request.nextUrl.clone();
+      redirectUrl.pathname = "/login";
+      return NextResponse.redirect(redirectUrl);
+    }
     return supabaseResponse;
   }
 
@@ -77,16 +97,7 @@ export async function updateSession(request: NextRequest) {
 
     const pathname = request.nextUrl.pathname;
 
-    // List of public/exempt routes accessible without paywall redirect (landing page, auth, login, paywall, redeem API, webhooks)
-    const isPublicRoute = 
-      pathname === "/" ||
-      pathname.startsWith("/login") ||
-      pathname.startsWith("/auth") ||
-      pathname.startsWith("/paywall") ||
-      pathname.startsWith("/api/redeem") ||
-      pathname.startsWith("/api/stripe/webhook");
-
-    if (!isPublicRoute) {
+    if (!isPublicRoute(pathname)) {
       if (!user) {
         // Not logged in trying to access protected route -> redirect to login
         const redirectUrl = request.nextUrl.clone();
