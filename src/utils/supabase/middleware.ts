@@ -75,21 +75,30 @@ export async function updateSession(request: NextRequest) {
       data: { user },
     } = await supabase.auth.getUser();
 
-    const isExemptPath = 
-      request.nextUrl.pathname.startsWith("/paywall") ||
-      request.nextUrl.pathname.startsWith("/auth") ||
-      request.nextUrl.pathname.startsWith("/api/stripe/webhook");
+    const pathname = request.nextUrl.pathname;
 
-    if (user) {
-      // User is logged in: Check paywall conditions unless on an exempt path
-      if (!isExemptPath) {
+    // List of public/exempt routes accessible by everyone (landing page, auth, login, paywall, webhooks)
+    const isPublicRoute = 
+      pathname === "/" ||
+      pathname.startsWith("/login") ||
+      pathname.startsWith("/auth") ||
+      pathname.startsWith("/paywall") ||
+      pathname.startsWith("/api/stripe/webhook");
+
+    if (!isPublicRoute) {
+      if (!user) {
+        // Not logged in trying to access protected route -> redirect to login
+        const redirectUrl = request.nextUrl.clone();
+        redirectUrl.pathname = "/login";
+        return NextResponse.redirect(redirectUrl);
+      } else {
+        // Logged in trying to access protected route -> check profile credits & payment
         const { data: profile } = await supabase
           .from("profiles")
           .select("credits, has_paid")
           .eq("id", user.id)
           .single();
 
-        // If no profile found yet or credits <= 0 and has_paid is false -> redirect to paywall
         const credits = profile?.credits ?? 0;
         const hasPaid = profile?.has_paid ?? false;
 
@@ -98,19 +107,6 @@ export async function updateSession(request: NextRequest) {
           redirectUrl.pathname = "/paywall";
           return NextResponse.redirect(redirectUrl);
         }
-      }
-    } else {
-      // User is NOT logged in: protect all non-public pages
-      const isPublicPath = 
-        request.nextUrl.pathname === "/" ||
-        request.nextUrl.pathname.startsWith("/login") ||
-        request.nextUrl.pathname.startsWith("/auth") ||
-        request.nextUrl.pathname.startsWith("/api/stripe/webhook");
-
-      if (!isPublicPath) {
-        const redirectUrl = request.nextUrl.clone();
-        redirectUrl.pathname = "/login";
-        return NextResponse.redirect(redirectUrl);
       }
     }
   } catch (err) {
