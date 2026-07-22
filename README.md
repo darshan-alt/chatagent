@@ -1,5 +1,26 @@
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
+[![test](https://github.com/darshan-alt/chatagent/actions/workflows/test.yml/badge.svg?branch=openai)](https://github.com/darshan-alt/chatagent/actions/workflows/test.yml)
+
+## Continuous Integration
+
+The [`test`](.github/workflows/test.yml) workflow runs on every push and pull request, with two jobs:
+
+- **`unit`** — `tsc --noEmit` type-check + Vitest unit/integration suite (`npm test`).
+- **`e2e`** — Playwright: public flows always run; the authenticated happy-path
+  specs **skip automatically until the E2E secrets are configured** (see
+  [`TESTING.md`](TESTING.md)).
+
+To make these gate merges, enable branch protection on `main`:
+**Settings → Branches → Add rule → Require status checks to pass**, then select
+**`unit`** and **`e2e`**. To exercise the authenticated E2E in CI, add these repo
+secrets (**Settings → Secrets and variables → Actions**): `NEXT_PUBLIC_SUPABASE_URL`,
+`NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, and optionally
+`STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `E2E_USER_EMAIL`, `E2E_USER_PASSWORD`,
+`E2E_LLM_API_KEY`. Without them the `e2e` job still passes (public specs only).
+
+See [`TESTING.md`](TESTING.md) for how to run each layer locally.
+
 ## Getting Started
 
 First, run the development server:
