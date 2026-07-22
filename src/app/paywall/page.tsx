@@ -7,9 +7,46 @@ import { useRouter } from "next/navigation";
 export default function PaywallPage() {
   const [coupon, setCoupon] = useState("");
   const [loading, setLoading] = useState(false);
+  const [checkoutLoading, setCheckoutLoading] = useState(false);
   const [error, setError] = useState("");
   const [successMsg, setSuccessMsg] = useState("");
   const router = useRouter();
+
+  const handleStripeCheckout = async () => {
+    setCheckoutLoading(true);
+    setError("");
+    setSuccessMsg("");
+
+    try {
+      const res = await fetch("/api/stripe/checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+
+      const contentType = res.headers.get("content-type");
+      let data: any = {};
+
+      if (contentType && contentType.includes("application/json")) {
+        data = await res.json();
+      } else {
+        throw new Error("Server returned an invalid response. Please check your Stripe keys in .env.local.");
+      }
+
+      if (!res.ok) {
+        throw new Error(data.error || "Failed to initiate Stripe Checkout.");
+      }
+
+      if (data.url) {
+        window.location.href = data.url;
+      } else {
+        throw new Error("No Checkout URL returned from Stripe.");
+      }
+    } catch (err: any) {
+      setError(err.message || "An error occurred with Stripe Checkout.");
+    } finally {
+      setCheckoutLoading(false);
+    }
+  };
 
   const handleRedeem = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -60,13 +97,18 @@ export default function PaywallPage() {
         <div className="space-y-2 text-center">
           <h1 className="text-3xl font-bold tracking-tighter">Out of Credits</h1>
           <p className="text-zinc-400 text-sm">
-            You've run out of credits. Redeem a promo code (max 5 uses) or purchase credits to continue using ChatAgent.
+            You've run out of credits. Purchase 5 credits for $5 or enter a promo code to continue using ChatAgent.
           </p>
         </div>
         
         <div className="space-y-4">
-          <Button className="w-full bg-zinc-800 text-zinc-400 border border-zinc-700 hover:bg-zinc-800 cursor-not-allowed" size="lg" disabled>
-            Purchase Credits ($5) - Coming Soon
+          <Button 
+            onClick={handleStripeCheckout}
+            disabled={checkoutLoading}
+            className="w-full bg-zinc-100 text-zinc-950 hover:bg-zinc-200 font-semibold" 
+            size="lg"
+          >
+            {checkoutLoading ? "Connecting to Stripe..." : "Purchase 5 Credits ($5)"}
           </Button>
 
           <div className="relative">
@@ -104,7 +146,7 @@ export default function PaywallPage() {
 
             <Button 
               type="submit" 
-              className="w-full bg-zinc-100 text-zinc-950 hover:bg-zinc-200 font-semibold" 
+              className="w-full bg-zinc-900 text-zinc-100 border border-zinc-700 hover:bg-zinc-800 font-semibold" 
               size="lg" 
               disabled={loading}
             >
