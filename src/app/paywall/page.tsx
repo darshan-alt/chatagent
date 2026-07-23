@@ -82,7 +82,9 @@ export default function PaywallPage() {
       setSuccessMsg(message);
 
       setTimeout(() => {
-        router.push("/");
+        // Go straight into the app now that credits were added, instead of
+        // the landing page (which requires clicking Get Started again).
+        router.push("/chat");
         router.refresh();
       }, 1500);
     } catch (err: any) {

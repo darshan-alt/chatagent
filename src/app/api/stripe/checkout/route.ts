@@ -42,7 +42,7 @@ export async function POST(request: Request) {
           quantity: 1,
         },
       ],
-      success_url: `${origin}/?checkout=success`,
+      success_url: `${origin}/chat?checkout=success`,
       cancel_url: `${origin}/paywall?canceled=true`,
     });
 
