@@ -1,35 +1,8 @@
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
-import { createClient } from "@/utils/supabase/server";
 
-export default async function Home() {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-
-  let getStartedHref = "/login";
-  let addApiHref = "/login?next=/settings";
-
-  if (user) {
-    // User is logged in: Check profile
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("credits, has_paid")
-      .eq("id", user.id)
-      .single();
-
-    const credits = profile?.credits ?? 0;
-    const hasPaid = profile?.has_paid ?? false;
-
-    if (credits <= 0 && !hasPaid) {
-      getStartedHref = "/paywall";
-    } else {
-      getStartedHref = "/chat";
-    }
-
-    addApiHref = "/settings";
-  }
-
+export default function Home() {
   return (
     <div className="flex flex-col min-h-[100dvh] bg-zinc-950 text-zinc-50 selection:bg-zinc-800">
       <header className="px-4 lg:px-6 h-16 flex items-center border-b border-zinc-800">
@@ -43,7 +16,7 @@ export default async function Home() {
           <Link className="text-sm font-medium hover:text-zinc-300 transition-colors" href="#">
             Pricing
           </Link>
-          <Link className="text-sm font-medium hover:text-zinc-300 transition-colors" href={addApiHref}>
+          <Link className="text-sm font-medium hover:text-zinc-300 transition-colors" href="/settings">
             Settings
           </Link>
         </nav>
@@ -59,17 +32,11 @@ export default async function Home() {
                 ChatAgent provides instant, in-depth research and analysis powered by advanced LLM tools.
               </p>
               <div className="flex flex-wrap justify-center gap-4 mt-8">
-                <Link 
-                  href={getStartedHref} 
+                <Link
+                  href="/login"
                   className={cn(buttonVariants({ size: "lg" }), "bg-zinc-50 text-zinc-950 hover:bg-zinc-200 font-semibold")}
                 >
                   Get Started
-                </Link>
-                <Link 
-                  href={addApiHref} 
-                  className={cn(buttonVariants({ variant: "outline", size: "lg" }), "border-zinc-700 bg-zinc-900 text-zinc-100 hover:bg-zinc-800 hover:text-white font-semibold")}
-                >
-                  ADD LLM API
                 </Link>
               </div>
             </div>

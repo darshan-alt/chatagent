@@ -4,7 +4,9 @@ import { NextResponse } from "next/server";
 export async function GET(request: Request) {
   const requestUrl = new URL(request.url);
   const code = requestUrl.searchParams.get("code");
-  const next = requestUrl.searchParams.get("next") ?? "/";
+  // After a fresh sign-in, land the user in the app (middleware sends them to
+  // /paywall if they have no credits) instead of the marketing landing page.
+  const next = requestUrl.searchParams.get("next") ?? "/chat";
 
   if (code) {
     const supabase = await createClient();

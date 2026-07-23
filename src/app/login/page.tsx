@@ -14,7 +14,9 @@ export default async function LoginPage({
   
   const { data } = await supabase.auth.getUser();
   if (data?.user) {
-    redirect("/");
+    // Already signed in: go into the app (middleware routes to /paywall if the
+    // user is out of credits) rather than bouncing back to the landing page.
+    redirect("/chat");
   }
 
   return (
