@@ -28,11 +28,7 @@ export default async function ChatPage({
 
   const credits = profile?.credits ?? 0;
   const hasPaid = profile?.has_paid ?? false;
-
-  // Paywall check
-  if (credits <= 0 && !hasPaid) {
-    redirect("/paywall");
-  }
+  const outOfCredits = credits <= 0 && !hasPaid;
 
   // Fetch user chats list
   const { data: chats } = await supabase
@@ -86,7 +82,7 @@ export default async function ChatPage({
   return (
     <div className="flex h-screen w-full bg-zinc-950 overflow-hidden">
       <Sidebar chats={chats || []} currentChatId={currentChatId} credits={credits} />
-      <ChatView chatId={currentChatId} initialRuns={initialRuns} />
+      <ChatView chatId={currentChatId} initialRuns={initialRuns} outOfCredits={outOfCredits} />
     </div>
   );
 }

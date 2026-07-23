@@ -107,29 +107,13 @@ export async function updateSession(request: NextRequest) {
 
     const pathname = request.nextUrl.pathname;
 
-    if (!isPublicRoute(pathname) && !isApiRoute(pathname)) {
-      if (!user) {
-        // Not logged in trying to access protected route -> redirect to login
-        const redirectUrl = request.nextUrl.clone();
-        redirectUrl.pathname = "/login";
-        return NextResponse.redirect(redirectUrl);
-      } else {
-        // Logged in trying to access protected route -> check profile credits & payment
-        const { data: profile } = await supabase
-          .from("profiles")
-          .select("credits, has_paid")
-          .eq("id", user.id)
-          .single();
-
-        const credits = profile?.credits ?? 0;
-        const hasPaid = profile?.has_paid ?? false;
-
-        if (credits <= 0 && !hasPaid) {
-          const redirectUrl = request.nextUrl.clone();
-          redirectUrl.pathname = "/paywall";
-          return NextResponse.redirect(redirectUrl);
-        }
-      }
+    // Protected pages require a session. Credit gating is NOT enforced here:
+    // pages like /chat render for signed-in users even with 0 credits and show
+    // a "get credits" prompt. The credit check lives in the agent-run API.
+    if (!isPublicRoute(pathname) && !isApiRoute(pathname) && !user) {
+      const redirectUrl = request.nextUrl.clone();
+      redirectUrl.pathname = "/login";
+      return NextResponse.redirect(redirectUrl);
     }
   } catch (err) {
     console.error("Middleware session error:", err);
