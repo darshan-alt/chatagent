@@ -40,6 +40,21 @@ test("empty promo code is blocked client-side (required field)", async ({ page }
   await expect(page).toHaveURL(/\/paywall/);
 });
 
+test.describe("API routes return JSON, never an HTML redirect (paywall/login)", () => {
+  // Regression: middleware used to redirect /api/stripe/checkout to /paywall for
+  // out-of-credits users, so the browser fetch received HTML and the paywall
+  // reported "Server returned an invalid response. Please check your Stripe keys".
+  for (const ep of ["/api/stripe/checkout", "/api/agent/run", "/api/settings/save"]) {
+    test(`POST ${ep} responds with JSON`, async ({ request }) => {
+      const res = await request.post(ep, { data: {}, maxRedirects: 0 });
+      const status = res.status();
+      const isRedirect = status >= 300 && status < 400;
+      expect(isRedirect, `must not be a 3xx redirect (got ${status})`).toBe(false);
+      expect(res.headers()["content-type"] ?? "").toContain("application/json");
+    });
+  }
+});
+
 test.describe("GATE-02: protected routes redirect to /login when logged out", () => {
   for (const path of ["/chat", "/settings", "/stats"]) {
     test(`GET ${path} -> /login`, async ({ page }) => {

@@ -23,6 +23,15 @@ function isPublicRoute(pathname: string) {
   );
 }
 
+// API routes must never be redirected to an HTML page (login/paywall): the
+// browser fetch would follow the redirect and receive HTML instead of JSON.
+// Every /api route handler enforces its own auth (401) and credit (402) checks
+// and returns JSON, so middleware leaves them alone. This is what lets an
+// out-of-credits user actually reach /api/stripe/checkout to buy credits.
+function isApiRoute(pathname: string) {
+  return pathname.startsWith("/api");
+}
+
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({
     request: {
@@ -35,8 +44,9 @@ export async function updateSession(request: NextRequest) {
 
   if (!url || !anonKey) {
     // Supabase not configured: fail closed. Allow only public routes; send
-    // everything else to /login instead of leaving the app ungated.
-    if (!isPublicRoute(request.nextUrl.pathname)) {
+    // page requests to /login. API routes are left to their handlers (JSON).
+    const pathname = request.nextUrl.pathname;
+    if (!isPublicRoute(pathname) && !isApiRoute(pathname)) {
       const redirectUrl = request.nextUrl.clone();
       redirectUrl.pathname = "/login";
       return NextResponse.redirect(redirectUrl);
@@ -97,7 +107,7 @@ export async function updateSession(request: NextRequest) {
 
     const pathname = request.nextUrl.pathname;
 
-    if (!isPublicRoute(pathname)) {
+    if (!isPublicRoute(pathname) && !isApiRoute(pathname)) {
       if (!user) {
         // Not logged in trying to access protected route -> redirect to login
         const redirectUrl = request.nextUrl.clone();
