@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { useRouter } from "next/navigation";
 
@@ -153,6 +154,12 @@ export default function PaywallPage() {
               {loading ? "Redeeming..." : "Redeem Promo Code"}
             </Button>
           </form>
+
+          <div className="pt-2 text-center">
+            <Link href="/chat" className="text-sm text-zinc-400 hover:text-zinc-200 transition-colors">
+              Explore chat →
+            </Link>
+          </div>
         </div>
       </div>
     </div>

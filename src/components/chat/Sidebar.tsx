@@ -76,8 +76,9 @@ export function Sidebar({
             Settings
           </Link>
           <form action="/auth/signout" method="POST">
-            <button type="submit" className="hover:text-zinc-100 flex items-center gap-1 text-red-400 hover:text-red-300">
+            <button type="submit" className="flex items-center gap-1 text-red-400 hover:text-red-300">
               <LogOut className="w-3.5 h-3.5" />
+              Log out
             </button>
           </form>
         </div>
