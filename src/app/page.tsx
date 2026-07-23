@@ -1,8 +1,15 @@
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
+import { createClient } from "@/utils/supabase/server";
 
-export default function Home() {
+export default async function Home() {
+  // Point "Get Started" straight at the app for signed-in users, or the login
+  // page for signed-out visitors — no intermediate redirect hop.
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  const getStartedHref = user ? "/chat" : "/login";
+
   return (
     <div className="flex flex-col min-h-[100dvh] bg-zinc-950 text-zinc-50 selection:bg-zinc-800">
       <header className="px-4 lg:px-6 h-16 flex items-center border-b border-zinc-800">
@@ -27,7 +34,7 @@ export default function Home() {
               </p>
               <div className="flex flex-wrap justify-center gap-4 mt-8">
                 <Link
-                  href="/login"
+                  href={getStartedHref}
                   className={cn(buttonVariants({ size: "lg" }), "bg-zinc-50 text-zinc-950 hover:bg-zinc-200 font-semibold")}
                 >
                   Get Started
