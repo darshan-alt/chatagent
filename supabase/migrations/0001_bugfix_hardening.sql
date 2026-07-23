@@ -18,6 +18,29 @@ alter table public.stripe_events enable row level security;
 create unique index if not exists redemptions_user_code_unique
   on public.redemptions (user_id, lower(coupon_code));
 
+-- 2b. RLS for the redemptions table.
+-- The redeem API prefers the service-role key (which bypasses RLS). But if you
+-- run WITHOUT SUPABASE_SERVICE_ROLE_KEY set, the API uses the user's session and
+-- these policies are what let redemption tracking read/insert rows. Without
+-- them the insert is silently skipped (credits are still granted best-effort),
+-- but the per-user "already redeemed" check can't see prior rows.
+alter table public.redemptions enable row level security;
+
+drop policy if exists redemptions_select_own on public.redemptions;
+create policy redemptions_select_own on public.redemptions
+  for select to authenticated using (auth.uid() = user_id);
+
+drop policy if exists redemptions_insert_own on public.redemptions;
+create policy redemptions_insert_own on public.redemptions
+  for insert to authenticated with check (auth.uid() = user_id);
+
+-- 2c. profiles credit updates (user-session fallback only).
+-- The redeem API updates the caller's own credits. With the service-role key
+-- this is unnecessary; without it, ensure users can update their own profile:
+--
+-- create policy profiles_update_own on public.profiles
+--   for update to authenticated using (auth.uid() = id) with check (auth.uid() = id);
+
 -- 3. Optional but recommended: enforce the per-code usage cap atomically in the
 -- database instead of relying on application-level count-then-insert. Wrap
 -- redemption in a SECURITY DEFINER function that locks the code's rows:

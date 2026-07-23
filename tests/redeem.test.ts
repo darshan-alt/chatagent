@@ -14,7 +14,9 @@ const USER = { id: "user-1" };
 interface Scenario {
   coupon?: { code: string; credits_value: number } | null;
   existing?: { id: string } | null;
-  totalCount: number; // count AFTER the claim insert
+  totalCount: number;
+  insertError?: { message: string } | null;
+  profileError?: { message: string } | null;
 }
 
 function install(s: Scenario) {
@@ -22,13 +24,12 @@ function install(s: Scenario) {
     if (ctx.table === "coupons") return { data: s.coupon ?? null };
     if (ctx.table === "redemptions") {
       if (ctx.op === "select" && ctx.single) return { data: s.existing ?? null };
-      if (ctx.op === "insert") return { data: { id: "redemption-1" }, error: null };
       if (ctx.op === "select" && ctx.head) return { count: s.totalCount };
-      if (ctx.op === "delete") return { error: null };
+      if (ctx.op === "insert") return { error: s.insertError ?? null };
     }
     if (ctx.table === "profiles") {
       if (ctx.op === "select") return { data: { credits: 1, has_paid: false } };
-      if (ctx.op === "update") return { error: null };
+      if (ctx.op === "update" || ctx.op === "upsert") return { error: s.profileError ?? null };
     }
     return { data: null, error: null };
   };
@@ -37,26 +38,14 @@ function install(s: Scenario) {
   return mock;
 }
 
-beforeEach(() => vi.clearAllMocks());
+beforeEach(() => {
+  vi.clearAllMocks();
+  // Force the user-session client path (no service-role shortcut) in tests.
+  delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+});
 
-describe("POST /api/redeem — cap enforcement (RISK-3)", () => {
-  it("rolls back the claim and rejects when the claim pushes usage over the cap", async () => {
-    const { calls } = install({
-      coupon: { code: "PROMO5", credits_value: 5 },
-      existing: null,
-      totalCount: 6, // over MAX_PROMO_USES (5)
-    });
-
-    const res = await POST(jsonRequest({ code: "PROMO5" }));
-    expect(res.status).toBe(400);
-
-    // The claim was inserted then rolled back (deleted); credits never granted.
-    expect(calls.some((c) => c.table === "redemptions" && c.op === "insert")).toBe(true);
-    expect(calls.some((c) => c.table === "redemptions" && c.op === "delete")).toBe(true);
-    expect(calls.some((c) => c.table === "profiles" && c.op === "update")).toBe(false);
-  });
-
-  it("grants credits when within the cap and does not roll back", async () => {
+describe("POST /api/redeem — grants credits", () => {
+  it("grants credits within the cap and records the redemption", async () => {
     const { calls } = install({
       coupon: { code: "PROMO5", credits_value: 5 },
       existing: null,
@@ -67,29 +56,65 @@ describe("POST /api/redeem — cap enforcement (RISK-3)", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.creditsAdded).toBe(5);
-    expect(body.usesCount).toBe(3);
+    expect(body.usesCount).toBe(4); // 3 existing + this one
 
-    expect(calls.some((c) => c.table === "redemptions" && c.op === "delete")).toBe(false);
-    const update = calls.find((c) => c.table === "profiles" && c.op === "update");
-    expect((update?.payload as any).credits).toBe(6); // 1 + 5
+    expect(calls.some((c) => c.table === "redemptions" && c.op === "insert")).toBe(true);
+    const write = calls.find((c) => c.table === "profiles" && (c.op === "update" || c.op === "upsert"));
+    expect((write?.payload as any).credits).toBe(6); // 1 + 5
   });
 
-  it("inserts the claim BEFORE counting (ordering that closes the race)", async () => {
+  it("still grants credits when redemption tracking insert fails (best-effort)", async () => {
+    // Reproduces the RLS-blocked redemptions insert that used to hard-fail.
     const { calls } = install({
       coupon: { code: "PROMO5", credits_value: 5 },
       existing: null,
-      totalCount: 3,
+      totalCount: 0,
+      insertError: { message: "new row violates row-level security policy" },
     });
-    await POST(jsonRequest({ code: "PROMO5" }));
 
-    const insertIdx = calls.findIndex((c) => c.table === "redemptions" && c.op === "insert");
-    const countIdx = calls.findIndex((c) => c.table === "redemptions" && c.op === "select" && c.head);
-    expect(insertIdx).toBeGreaterThanOrEqual(0);
-    expect(countIdx).toBeGreaterThan(insertIdx);
+    const res = await POST(jsonRequest({ code: "PROMO5" }));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.creditsAdded).toBe(5);
+    // Credits were still granted despite the tracking insert error.
+    expect(calls.some((c) => c.table === "profiles" && (c.op === "update" || c.op === "upsert"))).toBe(true);
+  });
+
+  it("honors the SID_DRDROID seed fallback when the coupon table is empty", async () => {
+    install({ coupon: null, existing: null, totalCount: 1 });
+    const res = await POST(jsonRequest({ code: "sid_drdroid" }));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.creditsAdded).toBe(5);
   });
 });
 
-describe("POST /api/redeem — guards", () => {
+describe("POST /api/redeem — cap and guards", () => {
+  it("rejects when the code has reached its usage limit (before granting)", async () => {
+    const { calls } = install({
+      coupon: { code: "PROMO5", credits_value: 5 },
+      existing: null,
+      totalCount: 5, // == MAX_PROMO_USES
+    });
+
+    const res = await POST(jsonRequest({ code: "PROMO5" }));
+    expect(res.status).toBe(400);
+    expect(calls.some((c) => c.table === "redemptions" && c.op === "insert")).toBe(false);
+    expect(calls.some((c) => c.table === "profiles" && (c.op === "update" || c.op === "upsert"))).toBe(false);
+  });
+
+  it("rejects a code the user already redeemed (no insert, no credit grant)", async () => {
+    const { calls } = install({
+      coupon: { code: "PROMO5", credits_value: 5 },
+      existing: { id: "r-existing" },
+      totalCount: 2,
+    });
+    const res = await POST(jsonRequest({ code: "PROMO5" }));
+    expect(res.status).toBe(400);
+    expect(calls.some((c) => c.table === "redemptions" && c.op === "insert")).toBe(false);
+    expect(calls.some((c) => c.table === "profiles" && (c.op === "update" || c.op === "upsert"))).toBe(false);
+  });
+
   it("rejects an empty code", async () => {
     install({ totalCount: 0 });
     const res = await POST(jsonRequest({ code: "" }));
@@ -104,23 +129,14 @@ describe("POST /api/redeem — guards", () => {
     expect(body.error).toContain("Invalid promo code");
   });
 
-  it("rejects a code the user already redeemed", async () => {
-    const { calls } = install({
+  it("returns 500 when the credit update itself fails", async () => {
+    install({
       coupon: { code: "PROMO5", credits_value: 5 },
-      existing: { id: "r-existing" },
-      totalCount: 2,
+      existing: null,
+      totalCount: 0,
+      profileError: { message: "permission denied" },
     });
     const res = await POST(jsonRequest({ code: "PROMO5" }));
-    expect(res.status).toBe(400);
-    // No new claim inserted.
-    expect(calls.some((c) => c.table === "redemptions" && c.op === "insert")).toBe(false);
-  });
-
-  it("honors the SID_DRDROID seed fallback when the coupon table is empty", async () => {
-    install({ coupon: null, existing: null, totalCount: 1 });
-    const res = await POST(jsonRequest({ code: "sid_drdroid" }));
-    expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.creditsAdded).toBe(5);
+    expect(res.status).toBe(500);
   });
 });

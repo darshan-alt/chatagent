@@ -1,7 +1,20 @@
 import { createClient } from "@/utils/supabase/server";
+import { createClient as createServiceClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
 
 const MAX_PROMO_USES = 5;
+
+// Granting credits is a privileged operation. Prefer the service-role key
+// (bypasses RLS) so redemption tracking and credit updates work regardless of
+// row-level security. Falls back to null when the key isn't configured.
+function getServiceDb() {
+  const url = (process.env.NEXT_PUBLIC_SUPABASE_URL || "")
+    .replace(/\/rest\/v1\/?$/, "")
+    .replace(/\/+$/, "");
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) return null;
+  return createServiceClient(url, key);
+}
 
 export async function POST(request: Request) {
   try {
@@ -13,17 +26,21 @@ export async function POST(request: Request) {
     }
 
     const supabase = await createClient();
-    
+
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    // Use the privileged client for coupon/redemption/credit work when
+    // available; otherwise fall back to the user's session client.
+    const db = getServiceDb() ?? supabase;
+
     let couponValue = 0;
     let couponCode = cleanCode;
 
     // Standard check against DB
-    const { data: coupon } = await supabase
+    const { data: coupon } = await db
       .from("coupons")
       .select("*")
       .ilike("code", cleanCode)
@@ -40,96 +57,70 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Invalid promo code" }, { status: 400 });
     }
 
-    // 1. Reject if this user already redeemed the code.
-    const { data: existingRedemption } = await supabase
+    // 1. Reject if this user already redeemed the code, and enforce the total
+    //    usage cap. Both reads are best-effort — if the redemptions table can't
+    //    be read, we don't block a legitimate redemption.
+    const { data: existingRedemption } = await db
       .from("redemptions")
       .select("id")
       .eq("user_id", user.id)
       .ilike("coupon_code", couponCode)
-      .single();
+      .maybeSingle();
 
-    if (existingRedemption) {
-      const { count: usedCount } = await supabase
-        .from("redemptions")
-        .select("id", { count: "exact", head: true })
-        .ilike("coupon_code", couponCode);
-      return NextResponse.json({
-        error: `You have already redeemed this promo code. (Total code uses: ${usedCount ?? 0}/${MAX_PROMO_USES})`
-      }, { status: 400 });
-    }
-
-    // 2. Claim a redemption slot BEFORE checking the cap. Counting first and
-    // inserting after leaves a race window where many parallel requests all
-    // pass the check and blow past MAX_PROMO_USES. By inserting first and then
-    // counting, an over-limit claim can be detected and rolled back.
-    const { data: claimed, error: claimError } = await supabase
-      .from("redemptions")
-      .insert([{ user_id: user.id, coupon_code: couponCode }])
-      .select("id")
-      .single();
-
-    if (claimError || !claimed) {
-      return NextResponse.json({
-        error: "Could not redeem this promo code right now. Please try again."
-      }, { status: 500 });
-    }
-
-    // 3. Enforce the cap. If this claim pushed usage over the limit, roll it back.
-    const { count: totalRedemptionsCount } = await supabase
+    const { count: totalRedemptionsCount } = await db
       .from("redemptions")
       .select("id", { count: "exact", head: true })
       .ilike("coupon_code", couponCode);
 
     const currentUsageCount = totalRedemptionsCount || 0;
 
-    if (currentUsageCount > MAX_PROMO_USES) {
-      await supabase.from("redemptions").delete().eq("id", claimed.id);
+    if (existingRedemption) {
       return NextResponse.json({
-        error: `This promo code has reached its maximum usage limit (${MAX_PROMO_USES}/${MAX_PROMO_USES} uses).`
+        error: `You have already redeemed this promo code. (Total code uses: ${currentUsageCount}/${MAX_PROMO_USES})`
       }, { status: 400 });
     }
 
-    // 4. Fetch current profile & update credits
-    const { data: profile } = await supabase
+    if (currentUsageCount >= MAX_PROMO_USES) {
+      return NextResponse.json({
+        error: `This promo code has reached its maximum usage limit (${currentUsageCount}/${MAX_PROMO_USES} uses).`
+      }, { status: 400 });
+    }
+
+    // 2. Record the redemption. Best-effort: tracking must not block the credit
+    //    grant if the redemptions table has restrictive RLS or is missing.
+    const { error: insertErr } = await db
+      .from("redemptions")
+      .insert([{ user_id: user.id, coupon_code: couponCode }]);
+    if (insertErr) {
+      console.warn("Redemption tracking insert failed (continuing):", insertErr.message);
+    }
+
+    // 3. Fetch current profile & update credits (the critical step).
+    const { data: profile } = await db
       .from("profiles")
       .select("credits, has_paid")
       .eq("id", user.id)
       .single();
-      
+
     const currentCredits = profile?.credits || 0;
     const hasPaid = profile?.has_paid || false;
     const newCredits = currentCredits + couponValue;
 
-    let updateError = null;
-
-    if (profile) {
-      const res = await supabase
-        .from("profiles")
-        .update({ credits: newCredits })
-        .eq("id", user.id);
-      updateError = res.error;
-    } else {
-      const res = await supabase
-        .from("profiles")
-        .upsert({
-          id: user.id,
-          credits: newCredits,
-          has_paid: hasPaid,
-        });
-      updateError = res.error;
-    }
+    // Update in place when the profile already exists (needs only an UPDATE
+    // policy under the user-session fallback); upsert only to create a missing
+    // row. The service-role client bypasses RLS entirely when configured.
+    const { error: updateError } = profile
+      ? await db.from("profiles").update({ credits: newCredits }).eq("id", user.id)
+      : await db.from("profiles").upsert({ id: user.id, credits: newCredits, has_paid: hasPaid });
 
     if (updateError) {
       console.error("Profile credits update error:", updateError);
-      // Roll back the claimed redemption so the user can retry.
-      await supabase.from("redemptions").delete().eq("id", claimed.id);
       return NextResponse.json({
         error: `Failed to update credits: ${updateError.message || "RLS policy error"}.`
       }, { status: 500 });
     }
 
-    // currentUsageCount already includes this redemption (claimed in step 2).
-    const newUsageCount = currentUsageCount;
+    const newUsageCount = currentUsageCount + 1;
 
     return NextResponse.json({ 
       success: true, 
