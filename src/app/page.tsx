@@ -10,12 +10,6 @@ export default function Home() {
           <span className="font-bold text-xl tracking-tighter">ChatAgent</span>
         </Link>
         <nav className="ml-auto flex gap-4 sm:gap-6 items-center">
-          <Link className="text-sm font-medium hover:text-zinc-300 transition-colors" href="#">
-            Features
-          </Link>
-          <Link className="text-sm font-medium hover:text-zinc-300 transition-colors" href="#">
-            Pricing
-          </Link>
           <Link className="text-sm font-medium hover:text-zinc-300 transition-colors" href="/settings">
             Settings
           </Link>
